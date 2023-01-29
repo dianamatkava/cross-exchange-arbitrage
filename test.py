@@ -111,17 +111,7 @@ try:
     
 except Exception as _ex:
     print(_ex)
-# # Create single pair arbitrage table
-# # single_df = y_df[y_df.NAME_x == y_df.NAME_y]
-# single_df = y_df[y_df.CUR2_x == y_df.CUR1_y]
-# single_df = single_df[single_df.EXCH_x != single_df.EXCH_y]
-# # single_df['PROF1'] = round((single_df['PRICE1_y'] * 100 / single_df['PRICE2_x'])-100, 5)
-# # single_df['PROF2'] = round((single_df['PRICE2_y'] * 100 / single_df['PRICE1_x'])-100, 5)
 
-
-# # # Sort result by profit
-# # single_df = single_df[(single_df.PROF1 >= 1) | (single_df.PROF2 >= 1)].sort_values('PROF1', ascending=False)
-# print('Single: ', len(single_df))
 
 
 
