@@ -1,3 +1,7 @@
 /venv
 *.csv
-*/.ipynb_checkpoints
+*.db
+*.sqlite
+*.sqlite3
+.env
+.ipynb_checkpoints
