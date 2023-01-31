@@ -5,6 +5,7 @@ import sys
 from typing import List
 
 import django
+from django.apps import apps
 
 sys.path.append(os.getcwd())
 
@@ -18,15 +19,16 @@ import json
 import logging
 
 import conf as conf
+import dask as dd
 import pandas as pd
 import requests
 import sqlalchemy
 from django.utils import timezone
 from dotenv import load_dotenv
 from sqlalchemy.sql import text
-from utils import reverse_pairs
+from utils import hash_unicode, reverse_pairs
 
-from arbitrage.models import TradingViewData, CrossExchangeArbitrage
+from arbitrage.models import CrossExchangeArbitrage, TradingViewData
 
 load_dotenv()
 
@@ -38,7 +40,7 @@ handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s -
 logger.addHandler(handler)
 
 
-class ScreenerStatus:
+class ScreenerLogger:
     code: int
     msg: str
     system_msg: str
@@ -84,9 +86,9 @@ class TradingViewScreener:
                 columns=conf.columns
             )
             self.df = df
-            return ScreenerStatus(res.status_code, f'DETECTED: {count} pairs.')
+            return ScreenerLogger(res.status_code, f'DETECTED: {count} pairs.')
         else:
-            return ScreenerStatus(code=res.status_code, log_level='error')
+            return ScreenerLogger(code=res.status_code, log_level='error')
         
     
     def arrange_data(self):
@@ -112,15 +114,15 @@ class TradingViewScreener:
             
             df = df.reindex(columns=conf.ordered_columns)
             
-            ScreenerStatus(200, f'ARRANGED: {len(df)} pairs.')
+            ScreenerLogger(200, f'ARRANGED: {len(df)} pairs.')
             
             df = reverse_pairs(df)
             
             self.df = df
-            return ScreenerStatus(200, f'REVERSED: {len(df)} pairs.')
+            return ScreenerLogger(200, f'REVERSED: {len(df)} pairs.')
         
         except Exception as _ex:
-            return ScreenerStatus(code=400, msg=_ex, log_level='error')
+            return ScreenerLogger(code=400, msg=_ex, log_level='error')
 
 
     def update_db(self):
@@ -129,8 +131,8 @@ class TradingViewScreener:
         if trv_data:
             existing_hashes = list(trv_data.values_list('hash_pair', flat=True))
         
-        update_hash_pairs(self.df[self.df.HASH.isin(existing_hashes)])
-        create_hash_pairs(self.df[~self.df.HASH.isin(existing_hashes)])
+        update_hash_pairs(self.df[self.df.HASH.isin(existing_hashes)], 'TradingViewData')
+        #create_hash_pairs(self.df[~self.df.HASH.isin(existing_hashes)], 'TradingViewData')
         
 
     def __call__(self):
@@ -142,41 +144,64 @@ class TradingViewScreener:
 
 
 def update_cross_exchange_arbitrage(data: List[TradingViewData]):
-    engine = sqlalchemy.create_engine(conf.db_address % os.getcwd())
-    with engine.connect() as connection:
-        res = connection.execute(text(conf.cross_exch_query)).fetchall()
+    try:
+        res = False
+        engine = sqlalchemy.create_engine(conf.db_address % os.getcwd(), connect_args={'timeout': 15})
+        with engine.connect() as connection:
+            res = connection.execute(text(conf.cross_exch_query)).fetchall()
+            ScreenerLogger(200, f'GENERATED: {len(res)} cross-exchange pairs')
+            
+        hash_dict = {i.hash_pair: i for i in data}
         
-    print(res)  
+        if res:
+            df = pd.DataFrame(res, columns=['hash1', 'hash2', 'hash3', 'profit'])
+            df['hash1']= df['hash1'].map(hash_dict)
+            df['hash2']= df['hash2'].map(hash_dict)
+            df['hash3']= df['hash3'].map(hash_dict)
+            
+            df['HASH'] = df[0] + df[1] + df[2]
+            df['HASH'] = df['HASH'].apply(hash_unicode)
+            
+            df = df[['HASH', *list(df.columns)[0:-2]]]
+            create_hash_pairs(df, 'CrossExchangeArbitrage')
+            
+    except Exception as _ex:
+        return ScreenerLogger(code=400, msg=_ex, log_level='error')
+ 
 
-def update_hash_pairs(df:pd.DataFrame):
+def update_hash_pairs(df:pd.DataFrame, model:str):
+    Model = apps.get_model('arbitrage', model)
     try:
         # date = datetime.datetime.now(tz=timezone.utc)
-        # res = TradingViewData.objects.bulk_update(
+        # res = Model.objects.bulk_update(
         #     [
-        #         TradingViewData(*row.to_list(), date=date)
+        #         Model(*row.to_list(), date=date)
         #         for index, row in df.iterrows()
         #     ],
         #     ["price_1", "price_2", 'date'],
         #     batch_size=1000
         # )
-        update_cross_exchange_arbitrage(TradingViewData.objects.all())
-        # return ScreenerStatus(200, f'UPDATED: {res} pairs.')
+        update_cross_exchange_arbitrage(Model.objects.all())
+        # return ScreenerLogger(200, f'UPDATED: {res} pairs. {model}')
     except Exception as _ex:
-        return ScreenerStatus(code=400, msg=_ex, log_level='error')
+        return ScreenerLogger(code=400, msg=f'{_ex} {model}', log_level='error')
     
     
-def create_hash_pairs(df:pd.DataFrame):
-    bulk_create = list()
-    for index, row in df.iterrows():
-        bulk_create.append(
-            TradingViewData(*row.tolist())
-        )
+def create_hash_pairs(df:pd.DataFrame, model:str):
+    
     try:
-        res = TradingViewData.objects.bulk_create(bulk_create)
-        ScreenerStatus(200, f'CREATED: {len(res)} pairs.')
-        update_cross_exchange_arbitrage(res)
+        bulk_create = list()
+        Model = apps.get_model('arbitrage', model)
+        for index, row in df.iterrows():
+            print(row.tolist())
+            bulk_create.append(
+                Model(*row.tolist())
+            )
+        res = Model.objects.bulk_create(bulk_create)
+        ScreenerLogger(200, f'CREATED: {len(res)} pairs. {model}')
+        # update_cross_exchange_arbitrage(res)
         return 
     except Exception as _ex:
-        return ScreenerStatus(code=400, msg=_ex, log_level='error')
+        return ScreenerLogger(code=400, msg=f'{_ex} {model}', log_level='error')
     
 TradingViewScreener()
