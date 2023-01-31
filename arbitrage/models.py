@@ -17,8 +17,8 @@ class TradingViewData(models.Model):
     class Meta:
         verbose_name_plural = 'Trading View Data'
         
-    def __str__(self):
-        return f'{self.name} {self.exchange} {round(self.price_1, 3)}'
+    # def __str__(self):
+    #     return f'{self.name} {self.exchange} {round(self.price_1, 3)}'
     
     
 class CrossExchangeArbitrage(models.Model):
