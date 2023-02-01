@@ -17,9 +17,10 @@ import datetime
 import http
 import json
 import logging
+import inspect
 
 import conf as conf
-import dask as dd
+import dask.dataframe as dd
 import pandas as pd
 import requests
 import sqlalchemy
@@ -45,16 +46,18 @@ class ScreenerLogger:
     msg: str
     system_msg: str
     log_level: str
+    foo_name: str
     
-    def __init__(self, code:int, msg:str='', log_level:str='info'):
+    def __init__(self, code:int, msg:str='', log_level:str='info', foo_name:str=''):
         self.code = code
         self.msg = msg
         self.system_msg = http.HTTPStatus(code).phrase
         self.log_level = log_level
+        self.foo_name = inspect.stack()[0][3]
         self.__call__()
     
     def __str__(self):
-        return f'{self.code} {self.system_msg}: {self.msg}' 
+        return f'{self.code} {self.system_msg} in {self.foo_name}: {self.msg}' 
     
     def __call__(self):
         log_method = getattr(logger, self.log_level)
@@ -155,18 +158,19 @@ def update_cross_exchange_arbitrage(data: List[TradingViewData]):
         
         if res:
             df = pd.DataFrame(res, columns=['hash1', 'hash2', 'hash3', 'profit'])
-            df['hash1']= df['hash1'].map(hash_dict)
-            df['hash2']= df['hash2'].map(hash_dict)
-            df['hash3']= df['hash3'].map(hash_dict)
-            
-            df['HASH'] = df[0] + df[1] + df[2]
+
+            df['HASH'] = df['hash1'] + df['hash2'] + df['hash3']
             df['HASH'] = df['HASH'].apply(hash_unicode)
-            
+            # df['hash1']= df['hash1'].map(hash_dict)
             df = df[['HASH', *list(df.columns)[0:-2]]]
             create_hash_pairs(df, 'CrossExchangeArbitrage')
             
     except Exception as _ex:
-        return ScreenerLogger(code=400, msg=_ex, log_level='error')
+        return ScreenerLogger(
+            code=400, msg=_ex,
+            log_level='error', 
+            foo_name=inspect.stack()[0][3]
+        )
  
 
 def update_hash_pairs(df:pd.DataFrame, model:str):
@@ -184,7 +188,11 @@ def update_hash_pairs(df:pd.DataFrame, model:str):
         update_cross_exchange_arbitrage(Model.objects.all())
         # return ScreenerLogger(200, f'UPDATED: {res} pairs. {model}')
     except Exception as _ex:
-        return ScreenerLogger(code=400, msg=f'{_ex} {model}', log_level='error')
+        return ScreenerLogger(
+            code=400, msg=f'{_ex} {model}', 
+            log_level='error', 
+            foo_name=inspect.stack()[0][3]
+        )
     
     
 def create_hash_pairs(df:pd.DataFrame, model:str):
@@ -193,7 +201,7 @@ def create_hash_pairs(df:pd.DataFrame, model:str):
         bulk_create = list()
         Model = apps.get_model('arbitrage', model)
         for index, row in df.iterrows():
-            print(row.tolist())
+            print(Model(*row.tolist()))
             bulk_create.append(
                 Model(*row.tolist())
             )
@@ -202,6 +210,10 @@ def create_hash_pairs(df:pd.DataFrame, model:str):
         # update_cross_exchange_arbitrage(res)
         return 
     except Exception as _ex:
-        return ScreenerLogger(code=400, msg=f'{_ex} {model}', log_level='error')
+        return ScreenerLogger(
+            code=400, msg=f'{_ex} {model}', 
+            log_level='error', 
+            foo_name=inspect.stack()[0][3]
+        )
     
 TradingViewScreener()
