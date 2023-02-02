@@ -53,7 +53,13 @@ tvd.price_1*tvd_x.price_1*tvd_y.price_1*100/1-100 as PROFIT
 from arbitrage_tradingviewdata tvd 
 inner join arbitrage_tradingviewdata tvd_x on tvd_x.cur_1=tvd.cur_2
 inner join arbitrage_tradingviewdata tvd_y on tvd_y.cur_2=tvd.cur_1
-where tvd.exchange != tvd_x.exchange and tvd.exchange == tvd_y.exchange
+where (tvd.exchange != tvd_x.exchange and tvd.exchange == tvd_y.exchange
         and tvd.cur_1 != tvd_x.cur_2 and tvd_x.cur_2 == tvd_y.cur_1
-        and PROFIT > 2 and PROFIT < 50
+        and PROFIT > 2 and PROFIT < 50)
+'''
+
+extra_condition = '''
+        and (tvd.hash_pair in {0}
+        or tvd_x.hash_pair in {0}
+        or tvd_y.hash_pair in {0})
 '''
