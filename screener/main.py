@@ -75,7 +75,6 @@ class TradingViewScreener:
         self.body = conf.tv_body
         self.exch = conf.exch
         self.__call__()
-        
 
     def connect_(self): 
         res = requests.post(self.URL, data=json.dumps(self.body))
@@ -93,7 +92,6 @@ class TradingViewScreener:
         else:
             return ScreenerLogger(code=res.status_code, log_level='error')
         
-    
     def arrange_data(self):
         try:
             df = self.df
@@ -127,7 +125,6 @@ class TradingViewScreener:
         except Exception as _ex:
             return ScreenerLogger(code=400, msg=_ex, log_level='error')
 
-
     def update_db(self):
         trv_data = TradingViewData.objects.all()
         existing_hashes = list()
@@ -135,26 +132,30 @@ class TradingViewScreener:
             existing_hashes = list(trv_data.values_list('hash_pair', flat=True))
         
         update_hash_pairs(self.df[self.df.HASH.isin(existing_hashes)], 'TradingViewData')
-        #create_hash_pairs(self.df[~self.df.HASH.isin(existing_hashes)], 'TradingViewData')
+        hashes = create_hash_pairs(self.df[~self.df.HASH.isin(existing_hashes)], 'TradingViewData')
+        if hashes:
+            update_cross_exchange_arbitrage(hashes, trv_data)
         
-
     def __call__(self):
         self.connect_()
         self.arrange_data()
         self.update_db()
-        
 
 
-
-def update_cross_exchange_arbitrage(data: List[TradingViewData]):
+def update_cross_exchange_arbitrage(hashes: list=None, trv_data:TradingViewData=None):
     try:
         res = False
+        
+        if hashes and len(hashes) < len(trv_data):
+            query = conf.cross_exch_query + conf.extra_condition.format(tuple(hashes))
+        else:
+            query = conf.cross_exch_query
+        
         engine = sqlalchemy.create_engine(conf.db_address % os.getcwd(), connect_args={'timeout': 15})
         with engine.connect() as connection:
-            res = connection.execute(text(conf.cross_exch_query)).fetchall()
-            ScreenerLogger(200, f'GENERATED: {len(res)} cross-exchange pairs')
+            res = connection.execute(text(query)).fetchall()
             
-        hash_dict = {i.hash_pair: i for i in data}
+            ScreenerLogger(200, f'GENERATED: {len(res)} cross-exchange pairs')
         
         if res:
             df = pd.DataFrame(res, columns=['hash1', 'hash2', 'hash3', 'profit'])
@@ -162,6 +163,7 @@ def update_cross_exchange_arbitrage(data: List[TradingViewData]):
             df['HASH'] = df['hash1'] + df['hash2'] + df['hash3']
             df['HASH'] = df['HASH'].apply(hash_unicode)
             # df['hash1']= df['hash1'].map(hash_dict)
+            
             df = df[['HASH', *list(df.columns)[0:-2]]]
             create_hash_pairs(df, 'CrossExchangeArbitrage')
             
@@ -175,18 +177,18 @@ def update_cross_exchange_arbitrage(data: List[TradingViewData]):
 
 def update_hash_pairs(df:pd.DataFrame, model:str):
     Model = apps.get_model('arbitrage', model)
+    date = datetime.datetime.now(tz=timezone.utc)
+    bulk_update = [
+        Model(*row.to_list(), date=date)
+        for index, row in df.iterrows()
+    ]
     try:
-        # date = datetime.datetime.now(tz=timezone.utc)
-        # res = Model.objects.bulk_update(
-        #     [
-        #         Model(*row.to_list(), date=date)
-        #         for index, row in df.iterrows()
-        #     ],
-        #     ["price_1", "price_2", 'date'],
-        #     batch_size=1000
-        # )
-        update_cross_exchange_arbitrage(Model.objects.all())
-        # return ScreenerLogger(200, f'UPDATED: {res} pairs. {model}')
+        res = Model.objects.bulk_update(
+            bulk_update,
+            ["price_1", "price_2", 'date'],
+            batch_size=1000
+        )
+        return ScreenerLogger(200, f'UPDATED: {res} pairs. {model}')
     except Exception as _ex:
         return ScreenerLogger(
             code=400, msg=f'{_ex} {model}', 
@@ -199,16 +201,17 @@ def create_hash_pairs(df:pd.DataFrame, model:str):
     
     try:
         bulk_create = list()
+        hashes = list()
         Model = apps.get_model('arbitrage', model)
         for index, row in df.iterrows():
-            print(Model(*row.tolist()))
             bulk_create.append(
                 Model(*row.tolist())
             )
-        res = Model.objects.bulk_create(bulk_create)
-        ScreenerLogger(200, f'CREATED: {len(res)} pairs. {model}')
-        # update_cross_exchange_arbitrage(res)
-        return 
+            hashes.append(row.tolist()[0])
+        Model.objects.bulk_create(bulk_create)
+        ScreenerLogger(200, f'CREATED: {len(hashes)} pairs. {model}')
+        return hashes
+    
     except Exception as _ex:
         return ScreenerLogger(
             code=400, msg=f'{_ex} {model}', 
