@@ -3,7 +3,6 @@
 
 
 ### v1.0.0 Planned Features
-* **SQLite3**
 * **Pandas**
 * **BinanceAPI and Binance listner**
 * **BiBitAPI**
