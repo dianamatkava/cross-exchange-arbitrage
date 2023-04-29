@@ -27,7 +27,7 @@ import sqlalchemy
 from django.utils import timezone
 from dotenv import load_dotenv
 from sqlalchemy.sql import text
-from utils import hash_unicode, reverse_pairs
+from utils import hash_unicode
 
 from arbitrage.models import CrossExchangeArbitrage, TradingViewData
 
@@ -133,13 +133,30 @@ class TradingViewScreener:
         
         update_hash_pairs(self.df[self.df.HASH.isin(existing_hashes)], 'TradingViewData')
         hashes = create_hash_pairs(self.df[~self.df.HASH.isin(existing_hashes)], 'TradingViewData')
-        if hashes:
-            update_cross_exchange_arbitrage(hashes, trv_data)
+        # if hashes:
+        #     update_cross_exchange_arbitrage(hashes, trv_data)
         
     def __call__(self):
         self.connect_()
         self.arrange_data()
         self.update_db()
+
+
+def reverse_pairs(df:pd.DataFrame):
+    # Create reverse CUR1 and CUR2
+    reverse_df = df.copy()
+    reverse_df['CUR1'] = df['CUR2']
+    reverse_df['CUR2'] = df['CUR1']
+    reverse_df['PRICE1'] = df['PRICE2']
+    reverse_df['PRICE2'] = df['PRICE1']
+
+    # Concatenate df
+    df = pd.concat([df,reverse_df])
+    
+    # Create HASH column
+    df['HASH'] = df['NAME'] + df['CUR1'] + df['CUR2'] + df['EXCH'] + df['TYPE']
+    df['HASH'] = df['HASH'].apply(hash_unicode)
+    return df
 
 
 def update_cross_exchange_arbitrage(hashes: list=None, trv_data:TradingViewData=None):
