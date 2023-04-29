@@ -32,7 +32,9 @@ tv_body = {
 }
 
 exch = [
-    'UNISWAP', 'BINANCE', 'MEXC', 'GATEIO',
+    'BINANCE', 
+    
+    'MEXC',
     'HITBTC', 'UNISWAP3ETH', 'KUCOIN', 'BITTREX',
     'COINEX', 'OKX', 'HUOBI', 'KRAKEN',
     'SUSHISWAP', 'POLONIEX', 'BITMEX', 'BITFINEX',
